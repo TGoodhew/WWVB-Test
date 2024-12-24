@@ -18,15 +18,16 @@
 #define LED 13 // Flash the led to show the ESP32 is up and running
 
 // Hours in UTC time
-#define hour_tens 2
-#define hour_ones 2
+#define hour_tens 0
+#define hour_ones 7
 
-#define minute_tens 2
+#define minute_tens 3
 // Minute ones default to zero
 
 volatile uint8_t slot = 0;
 volatile uint8_t wwvbSignal = 0;
-volatile uint8_t minute_ones;
+volatile uint8_t minute_ones = 0;
+volatile uint8_t ticks = 0;
 
 bool bState = false;
 String messageTimer = "Timer count is: ";
@@ -41,6 +42,8 @@ hw_timer_t *TimerBitMarker = NULL;
 // One Second timer
 hw_timer_t *TimerSecond = NULL;
 
+bool bDone = false;
+
 // All the bit/marker timers just reenable the 50%^ duty cycle of the 60KHz signal
 void IRAM_ATTR TimerSignalReenable_ISR()
 {
@@ -51,7 +54,6 @@ void IRAM_ATTR TimerSignalReenable_ISR()
 // This routine based on sbmull's code for the ATTINY - It generates the correct bit values for each second of the emulated signal
 void IRAM_ATTR TimerSecond_ISR()
 {
-
   switch (slot)
   {
 
@@ -222,7 +224,7 @@ void IRAM_ATTR TimerSecond_ISR()
   {
   case 0:
   {
-    // Serial.println("Signal Disabled 0");
+    Serial.print("0");
     // 0 (0.2s reduced power)
     analogWrite(A0, 0);
 
@@ -233,7 +235,7 @@ void IRAM_ATTR TimerSecond_ISR()
   break;
   case 1:
   {
-    // Serial.println("Signal Disabled 1");
+    Serial.print("1");
     // 1 (0.5s reduced power)
     analogWrite(A0, 0);
 
@@ -244,7 +246,7 @@ void IRAM_ATTR TimerSecond_ISR()
   break;
   case 2:
   {
-    // Serial.println("Signal Disabled Marker");
+    Serial.print("M");
 
     // Marker (0.8s reduced power)
     analogWrite(A0, 0);
@@ -255,12 +257,13 @@ void IRAM_ATTR TimerSecond_ISR()
   }
   break;
   }
-
+ 
   slot++; // Advance data slot in minute data packet
   if (slot == 60)
   {
     slot = 0;      // Reset slot to 0 if at 60 seconds
     minute_ones++; // Advance minute count
+    Serial.println();
   }
 
   // Serial.println(messageSignal + wwvbSignal);
@@ -291,6 +294,8 @@ void setup()
   timerAlarmWrite(TimerBit1, 500000, false);      
   timerAlarmWrite(TimerBitMarker, 800000, false); 
 
+  Serial.println("Start");
+
   // The one second timer runs always
   timerAlarmEnable(TimerSecond);
 
@@ -303,6 +308,14 @@ void setup()
 
 void loop()
 {
+  if ((ticks > 60) & (bDone == false))
+  {
+    timerAlarmDisable(TimerSecond);
+    analogWrite(A0, 0);
+    bDone = true;
+    Serial.println("\nDone");
+  }
+
   // Flash the led to show the ESP32 is up and running
   digitalWrite(LED, HIGH);
   // Serial.println("LED is on");
