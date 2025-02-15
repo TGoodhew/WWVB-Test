@@ -42,24 +42,12 @@ bool isDaylightSavingTime(int year, int daysPassed);
 
 #define LED 13 // Flash the led to show the ESP32 is up and running
 
-// // Hours in UTC time
-// #define hour_tens 0
-// #define hour_ones 9
-
-// #define minute_tens 0
-// // Minute ones default to zero
-
 const char* ntpServer = "pool.ntp.org";
 uint8_t WWVBArray[60] = {0};
 
 volatile uint8_t slot = 0;
-// volatile uint8_t wwvbSignal = 0;
 volatile uint8_t minute_ones = 0;
-
 bool bState = false;
-// String messageTimer = "Timer count is: ";
-// String messageSignal = "Signal count is: ";
-// String messageSlot = "Slot count is: ";
 
 // WiFi Provisioning
 bool is_provisioned = false;
@@ -153,21 +141,6 @@ void setup()
   // used in the provisioning app.
   WiFiProv.beginProvision(WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BTDM, WIFI_PROV_SECURITY_1, "abcd1234", "PROV_DTF");
 
-  // FOR TESTING - Manually set the Date & Time UTC
-//   struct tm tm;
-//   tm.tm_year = 2025 - 1900; // Year
-//   tm.tm_mon = 2; // Month (0-11)
-//   tm.tm_mday = 12; // Day
-//   tm.tm_hour = 20; // Hour
-//   tm.tm_min = 00; // Minute
-//   tm.tm_sec = 0; // Second
-
-//   time_t t = mktime(&tm);
-//   struct timeval now = { .tv_sec = t };
-//   settimeofday(&now, NULL);
-//   Serial.printf("Setup ESP DateTime - ");
-//   printESPTime();
-
   // Create the timers for seconds and bits/marker
   TimerSecond = timerBegin(0, 80, true);
   TimerBitMarker = timerBegin(1, 80, true);
@@ -187,9 +160,6 @@ void setup()
   timerAlarmWrite(TimerBitMarker, 800000, false); 
 
   Serial.println("Start");
-
-  // The one second timer runs always
-  //timerAlarmEnable(TimerSecond);
 
   // The WWVB signal is a 60KHz AM moduleted signal (there is a phase modulated option but this emulator is AM only)
   analogWriteFrequency(60000);
@@ -249,9 +219,6 @@ void loop()
   }
   else
   {
-      // REPLACE THIS WITH YOUR CODE
-      // This code will run every time through the loop() function while waiting for credentials
-      // It could be left off or used as shown to print a message to the serial monitor.
       Serial.println("Waiting for Wi-Fi credentials. Open app to get started.");
       delay(5000);
   }
