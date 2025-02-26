@@ -16,21 +16,32 @@
     0.6   Added NTP call to get UTC time
 */
 
+// Defines
+//
+// Define WWVBDEBUG if you want to see serial output of the WWVB signal as it is created with each complete signal on one line
+//      M for marker bits
+//      0 for 0 bits
+//      1 for 1 bits
+#define WWVBDEBUG
+#define LED 13 // Flash the led to show the ESP32 is up and running
+
+// Inlcude files
 #include <Arduino.h>
 #include "WiFiProv.h"
 #include "WiFi.h"
 #include "Timezone.h"
 #include "apps/sntp/sntp.h"
 
-void encodeYear(uint16_t year, uint8_t* signal);
-void encodeDayOfYear(uint16_t dayOfYear, uint8_t* signal);
-void encodeHour(uint8_t hour, uint8_t* signal);
-void encodeMinute(uint8_t minute, uint8_t* signal);
-void setMarkersAndIndicators(uint8_t* signal);
-void setDUT1(uint8_t* signal);
-void setLeapYear(uint16_t year, uint8_t* signal);
-void setLeapSecond(bool IsLeap, uint8_t* signal);
-void setDST(bool IsDST, uint8_t* signal);
+// Function Prototypes - I wanted to keep this as a single file if people wanted to grab it and drop it into their projects
+void encodeYear(uint16_t year, uint8_t *signal);
+void encodeDayOfYear(uint16_t dayOfYear, uint8_t *signal);
+void encodeHour(uint8_t hour, uint8_t *signal);
+void encodeMinute(uint8_t minute, uint8_t *signal);
+void setMarkersAndIndicators(uint8_t *signal);
+void setDUT1(uint8_t *signal);
+void setLeapYear(uint16_t year, uint8_t *signal);
+void setLeapSecond(bool IsLeap, uint8_t *signal);
+void setDST(bool IsDST, uint8_t *signal);
 uint16_t BitsEncoder(uint16_t n);
 void IRAM_ATTR TimerSignalReenable_ISR();
 void IRAM_ATTR TimerSecond_ISR();
@@ -40,14 +51,10 @@ bool isLeapYear(int year);
 void calculateDSTDays(int year, int *startDay, int *endDay);
 bool isDaylightSavingTime(int year, int daysPassed);
 
-#define LED 13 // Flash the led to show the ESP32 is up and running
-
-const char* ntpServer = "pool.ntp.org";
+// WWVB related
+const char *ntpServer = "pool.ntp.org";
 uint8_t WWVBArray[60] = {0};
-
 volatile uint8_t slot = 0;
-volatile uint8_t minute_ones = 0;
-bool bState = false;
 
 // WiFi Provisioning
 bool is_provisioned = false;
@@ -61,181 +68,167 @@ hw_timer_t *TimerBitMarker = NULL;
 // One Second timer
 hw_timer_t *TimerSecond = NULL;
 
-bool bDone = false;
-
 // All the bit/marker timers just reenable the 50%^ duty cycle of the 60KHz signal
 void IRAM_ATTR TimerSignalReenable_ISR()
 {
-  analogWrite(A0, 127);
-  // Serial.println("Signal Enabled");
+    analogWrite(A0, 127);
 }
 
 // This routine based on sbmull's code for the ATTINY - It generates the correct bit values for each second of the emulated signal
 void IRAM_ATTR TimerSecond_ISR()
 {
-  switch (WWVBArray[slot])
-  {
-  case 0:
-  {
-    // Serial.print(slot);
-    // Serial.println(" 0");
-    Serial.print("0");
-    // 0 (0.2s reduced power)
-    analogWrite(A0, 0);
+    switch (WWVBArray[slot])
+    {
+    case 0:
+    {
+        #ifdef WWVBDEBUG
+        Serial.print("0");
+        #endif
 
-    // TimerBit0
-    timerRestart(TimerBit0);
-    timerAlarmEnable(TimerBit0);
-  }
-  break;
-  case 1:
-  {
-    // Serial.print(slot);
-    // Serial.println(" 1");
-    Serial.print("1");
-    // 1 (0.5s reduced power)
-    analogWrite(A0, 0);
+        // 0 (0.2s reduced power)
+        analogWrite(A0, 0);
 
-    // TimerBitMarker
-    timerRestart(TimerBit1);
-    timerAlarmEnable(TimerBit1);
-  }
-  break;
-  case 2:
-  {
-    // Serial.print(slot);
-    // Serial.println(" M");
-    Serial.print("M");
+        // TimerBit0
+        timerRestart(TimerBit0);
+        timerAlarmEnable(TimerBit0);
+    }
+    break;
+    case 1:
+    {
+        #ifdef WWVBDEBUG
+        Serial.print("1");
+        #endif
 
-    // Marker (0.8s reduced power)
-    analogWrite(A0, 0);
+        // 1 (0.5s reduced power)
+        analogWrite(A0, 0);
 
-    // TimerBitMarker
-    timerRestart(TimerBitMarker);
-    timerAlarmEnable(TimerBitMarker);
-  }
-  break;
-  }
- 
-  slot++; // Advance data slot in minute data packet
-  if (slot == 60)
-  {
-    slot = 0;      // Reset slot to 0 if at 60 seconds
-    minute_ones++; // Advance minute count
-    Serial.println();
-  }
+        // TimerBitMarker
+        timerRestart(TimerBit1);
+        timerAlarmEnable(TimerBit1);
+    }
+    break;
+    case 2:
+    {
+        #ifdef WWVBDEBUG
+        Serial.print("M");
+        #endif
 
-  // Serial.println(messageSignal + wwvbSignal);
-  // Serial.println(messageSlot + slot);
+        // Marker (0.8s reduced power)
+        analogWrite(A0, 0);
+
+        // TimerBitMarker
+        timerRestart(TimerBitMarker);
+        timerAlarmEnable(TimerBitMarker);
+    }
+    break;
+    }
+
+    slot++; // Advance data slot in minute data packet
+    if (slot == 60)
+    {
+        slot = 0; // Reset slot to 0 if at 60 seconds
+        #ifdef WWVBDEBUG
+        Serial.println();
+        #endif
+    }
 }
 
 void setup()
 {
-  Serial.begin(115200);
-  pinMode(LED, OUTPUT);
-  pinMode(A0, OUTPUT);
+    Serial.begin(115200);
+    pinMode(LED, OUTPUT);
+    pinMode(A0, OUTPUT);
 
-  // BLE WiFi Enrollment
-  WiFi.onEvent(SysProvEvent);
-  // TODO: change the PIN and device prefix here to suite your needs. The last two parameters are
-  // used in the provisioning app.
-  WiFiProv.beginProvision(WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BTDM, WIFI_PROV_SECURITY_1, "abcd1234", "PROV_DTF");
+    // BLE WiFi Enrollment
+    WiFi.onEvent(SysProvEvent);
+    
+    // TODO: change the PIN and device prefix here if desired. The last two parameters are
+    // used in the provisioning app.
+    WiFiProv.beginProvision(WIFI_PROV_SCHEME_BLE, WIFI_PROV_SCHEME_HANDLER_FREE_BTDM, WIFI_PROV_SECURITY_1, "abcd1234", "PROV_WWVB");
 
-  // Create the timers for seconds and bits/marker
-  TimerSecond = timerBegin(0, 80, true);
-  TimerBitMarker = timerBegin(1, 80, true);
-  TimerBit0 = timerBegin(2, 80, true);
-  TimerBit1 = timerBegin(3, 80, true);
+    // Create the timers for seconds and bits/marker
+    TimerSecond = timerBegin(0, 80, true);
+    TimerBitMarker = timerBegin(1, 80, true);
+    TimerBit0 = timerBegin(2, 80, true);
+    TimerBit1 = timerBegin(3, 80, true);
 
-  // Attach the appropriate ISR to each timer
-  timerAttachInterrupt(TimerSecond, &TimerSecond_ISR, true);
-  timerAttachInterrupt(TimerBit0, &TimerSignalReenable_ISR, true);
-  timerAttachInterrupt(TimerBit1, &TimerSignalReenable_ISR, true);
-  timerAttachInterrupt(TimerBitMarker, &TimerSignalReenable_ISR, true);
+    // Attach the appropriate ISR to each timer
+    timerAttachInterrupt(TimerSecond, &TimerSecond_ISR, true);
+    timerAttachInterrupt(TimerBit0, &TimerSignalReenable_ISR, true);
+    timerAttachInterrupt(TimerBit1, &TimerSignalReenable_ISR, true);
+    timerAttachInterrupt(TimerBitMarker, &TimerSignalReenable_ISR, true);
 
-  // Set timer alarm to trigger every second (1,000,000 µs)
-  timerAlarmWrite(TimerSecond, 1000000, true);    
-  timerAlarmWrite(TimerBit0, 200000, false);      
-  timerAlarmWrite(TimerBit1, 500000, false);      
-  timerAlarmWrite(TimerBitMarker, 800000, false); 
+    // Set timer alarm to trigger every second (1,000,000 µs)
+    timerAlarmWrite(TimerSecond, 1000000, true);
+    timerAlarmWrite(TimerBit0, 200000, false);
+    timerAlarmWrite(TimerBit1, 500000, false);
+    timerAlarmWrite(TimerBitMarker, 800000, false);
 
-  Serial.println("Start");
+    Serial.println("Start");
 
-  // The WWVB signal is a 60KHz AM moduleted signal (there is a phase modulated option but this emulator is AM only)
-  analogWriteFrequency(60000);
+    // The WWVB signal is a 60KHz AM moduleted signal (there is a phase modulated option but this emulator is AM only)
+    analogWriteFrequency(60000);
 
-  // Start 60KHz signal
-  analogWrite(A0, 127);
+    // Start 60KHz signal
+    analogWrite(A0, 127);
 }
 
 void loop()
 {
-  time_t rawtime;
-  struct tm *utcTime;
+    time_t rawtime;
+    struct tm *utcTime;
 
-  if(is_provisioned)
-  {
-    time(&rawtime);
-
-    utcTime = gmtime(&rawtime);
-
-    encodeYear(utcTime->tm_year + 1900, WWVBArray);
-    encodeDayOfYear(utcTime->tm_yday + 1, WWVBArray);
-    encodeHour(utcTime->tm_hour, WWVBArray);
-    encodeMinute(utcTime->tm_min, WWVBArray);
-    setMarkersAndIndicators(WWVBArray);
-    setDUT1(WWVBArray);
-    setLeapYear(utcTime->tm_year + 1900, WWVBArray);
-    setLeapSecond(false, WWVBArray);
-    setDST(isDaylightSavingTime(utcTime->tm_year + 1900, utcTime->tm_yday + 1), WWVBArray); // Using some AI code here, not proud of it but it seems to work - needs checking...
-
-    // Enable the seconds timer to start sending the WWVB signal
-    if (!timer_Enabled)
+    // Wait for the device to complete WiFi provisioning
+    if (is_provisioned)
     {
-        Serial.println("Kicking off NTP");
-        configTime(0,0, ntpServer);
-        
-        // This only works due to the specific implementation of getLocalTime() - https://github.com/espressif/arduino-esp32/blob/7485c653bb949fd182d1eaa46f53f7947b348149/cores/esp32/esp32-hal-time.c#L114
-        // someone added a check on the year value for some reason (must be greater than 2016) and as the RTC is initialize to epoch (1900) the call will fail until NTP syncs.
-        // A better way to do this would be to use the IDF call to wait for the sync message but this works for me and was way simpler.
-        Serial.println("Waiting for NTP Sync");
-        while(!getLocalTime(utcTime))
+        time(&rawtime);
+
+        utcTime = gmtime(&rawtime);
+
+        // Using the current UTC time fill in the WWVBArray
+        encodeYear(utcTime->tm_year + 1900, WWVBArray);
+        encodeDayOfYear(utcTime->tm_yday + 1, WWVBArray);
+        encodeHour(utcTime->tm_hour, WWVBArray);
+        encodeMinute(utcTime->tm_min, WWVBArray);
+        setMarkersAndIndicators(WWVBArray);
+        setDUT1(WWVBArray); // We're ignoring DUT1 as it has been deprecated and not used in this scenario
+        setLeapYear(utcTime->tm_year + 1900, WWVBArray);
+        setLeapSecond(false, WWVBArray); // Ignore leap seconds in this scenario
+        setDST(isDaylightSavingTime(utcTime->tm_year + 1900, utcTime->tm_yday + 1), WWVBArray);
+
+        // Enable the seconds timer to start sending the WWVB signal after NTP has synced
+        if (!timer_Enabled)
         {
-            Serial.println("Waiting");
-            delay(100);
+            configTime(0, 0, ntpServer);
+
+            // This only works due to the specific implementation of getLocalTime() - https://github.com/espressif/arduino-esp32/blob/7485c653bb949fd182d1eaa46f53f7947b348149/cores/esp32/esp32-hal-time.c#L114
+            // someone added a check on the year value for some reason (must be greater than 2016) and as the RTC is initialize to epoch (1900) the call will fail until NTP syncs.
+            // A better way to do this would be to use the IDF call to wait for the sync message but this works for me and was way simpler.
+            while (!getLocalTime(utcTime))
+            {
+                delay(100);
+            }
+
+            timerAlarmEnable(TimerSecond);
+            timer_Enabled = true;
         }
-     
-        timerAlarmEnable(TimerSecond);
-        timer_Enabled = true;
+
+        // Flash the led to show the ESP32 is up and running
+        digitalWrite(LED, HIGH);
+        delay(1000);
+        digitalWrite(LED, LOW);
+        delay(1000);
     }
-
-    
-    // Flash the led to show the ESP32 is up and running
-    digitalWrite(LED, HIGH);
-    //Serial.println("LED is on");
-    delay(1000);
-    digitalWrite(LED, LOW);
-    //Serial.println("LED is off");
-    delay(1000);
-  }
-  else
-  {
-      Serial.println("Waiting for Wi-Fi credentials. Open app to get started.");
-      delay(5000);
-  }
+    else
+    {
+        // Hold the LED on until provisioned
+        digitalWrite(LED, HIGH);
+        Serial.println("Waiting for Wi-Fi credentials. Open app to get started.");
+        delay(5000);
+    }
 }
 
-
-void printESPTime()
-{
-  struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
-    Serial.println("Failed to obtain time");
-    return;
-  }
-  Serial.println(&timeinfo, "%A, %B %d %Y %H:%M:%S");
-}
-
+// This rotuine takes the input value and then breaks it out in the individual BCD pattern that the WWVB format expects
 uint16_t BitsEncoder(uint16_t n)
 {
     uint16_t result = 0;
@@ -251,7 +244,8 @@ uint16_t BitsEncoder(uint16_t n)
     return result;
 }
 
-void encodeYear(uint16_t year, uint8_t* signal)
+// WWVB Expects year to be in 8 bit BCD - https://en.wikipedia.org/wiki/WWVB#Amplitude-modulated_time_code
+void encodeYear(uint16_t year, uint8_t *signal)
 {
     int yearBCD = year % 100;
     uint16_t bitsResult = BitsEncoder(yearBCD);
@@ -266,7 +260,8 @@ void encodeYear(uint16_t year, uint8_t* signal)
     signal[53] = (bitsResult & 0x01);
 }
 
-void encodeDayOfYear(uint16_t dayOfYear, uint8_t* signal)
+// WWVB Expects the day of the year to be in 10 bit BCD - https://en.wikipedia.org/wiki/WWVB#Amplitude-modulated_time_code
+void encodeDayOfYear(uint16_t dayOfYear, uint8_t *signal)
 {
     uint16_t bitsResult = BitsEncoder(dayOfYear);
 
@@ -282,7 +277,8 @@ void encodeDayOfYear(uint16_t dayOfYear, uint8_t* signal)
     signal[33] = (bitsResult & 0x0001);
 }
 
-void encodeHour(uint8_t hour, uint8_t* signal)
+// WWVB Expects the hour to be in 6 bit BCD - https://en.wikipedia.org/wiki/WWVB#Amplitude-modulated_time_code
+void encodeHour(uint8_t hour, uint8_t *signal)
 {
     uint16_t bitsResult = BitsEncoder(hour);
 
@@ -294,7 +290,8 @@ void encodeHour(uint8_t hour, uint8_t* signal)
     signal[18] = (bitsResult & 0x01);
 }
 
-void encodeMinute(uint8_t minute, uint8_t* signal)
+// WWVB Expects minutes to be in 7 bit BCD - https://en.wikipedia.org/wiki/WWVB#Amplitude-modulated_time_code
+void encodeMinute(uint8_t minute, uint8_t *signal)
 {
     uint16_t bitsResult = BitsEncoder(minute);
 
@@ -307,29 +304,32 @@ void encodeMinute(uint8_t minute, uint8_t* signal)
     signal[8] = (bitsResult & 0x01);
 }
 
-void setMarkersAndIndicators(uint8_t* signal) {
-    signal[0] = 2;    // Position marker
-    signal[9] = 2;    // Position marker
-    signal[19] = 2;   // Position marker
-    signal[29] = 2;   // Position marker
-    signal[39] = 2;   // Position marker
-    signal[49] = 2;   // Position marker
-    signal[59] = 2;   // Position marker
+// The WWVB signal has certain marker and bits that are always set to either a marker bit or a zero
+void setMarkersAndIndicators(uint8_t *signal)
+{
+    signal[0] = 2;  // Position marker
+    signal[9] = 2;  // Position marker
+    signal[19] = 2; // Position marker
+    signal[29] = 2; // Position marker
+    signal[39] = 2; // Position marker
+    signal[49] = 2; // Position marker
+    signal[59] = 2; // Position marker
 
-    signal[4] = 0;   // Always 0
-    signal[10] = 0;  // Always 0
-    signal[11] = 0;  // Always 0
-    signal[14] = 0;  // Always 0
-    signal[20] = 0;  // Always 0
-    signal[21] = 0;  // Always 0
-    signal[24] = 0;  // Always 0
-    signal[34] = 0;  // Always 0
-    signal[35] = 0;  // Always 0
-    signal[44] = 0;  // Always 0
-    signal[54] = 0;  // Always 0
+    signal[4] = 0;  // Always 0
+    signal[10] = 0; // Always 0
+    signal[11] = 0; // Always 0
+    signal[14] = 0; // Always 0
+    signal[20] = 0; // Always 0
+    signal[21] = 0; // Always 0
+    signal[24] = 0; // Always 0
+    signal[34] = 0; // Always 0
+    signal[35] = 0; // Always 0
+    signal[44] = 0; // Always 0
+    signal[54] = 0; // Always 0
 }
 
-void setDUT1(uint8_t* signal)
+// WWVB once supported celestial navigation uses but as it was deprecated and this scenario doesn't need it then just set those bits to 0 - https://en.wikipedia.org/wiki/WWVB#Amplitude-modulated_time_code
+void setDUT1(uint8_t *signal)
 {
     // DUT1 is obselete, it was used for celestial navigation
     signal[36] = 0;
@@ -341,22 +341,26 @@ void setDUT1(uint8_t* signal)
     signal[43] = 0;
 }
 
-void setLeapYear(uint16_t year, uint8_t* signal)
+// If you use the current year and mktime to set a date it will tell you if it is a leap year or not
+// I can't find where I got this code from so apologies for not crediting it to the appropriate person
+void setLeapYear(uint16_t year, uint8_t *signal)
 {
-    struct tm time_in = { 0 };
+    struct tm time_in = {0};
     time_in.tm_year = year - 1900;
     time_in.tm_mon = 2;  // March (0-based: January is 0)
-    time_in.tm_mday = 0; // Zero day of March will roll over to the last day of February
+    time_in.tm_mday = 0; // Zero day of March will roll back to the last day of February
 
     mktime(&time_in);
 
+    // If mktime leaves the day as 29 then it is a leap year
     if (time_in.tm_mday == 29)
         signal[55] = 1;
     else
         signal[55] = 0;
 }
 
-void setLeapSecond(bool IsLeap, uint8_t* signal)
+// WWVB Expects this bit for a leap second, I don't believe it is useful in this scenario but setting it just in case - https://en.wikipedia.org/wiki/WWVB#Amplitude-modulated_time_code
+void setLeapSecond(bool IsLeap, uint8_t *signal)
 {
     if (IsLeap)
         signal[56] = 1;
@@ -364,7 +368,8 @@ void setLeapSecond(bool IsLeap, uint8_t* signal)
         signal[56] = 0;
 }
 
-void setDST(bool IsDST, uint8_t* signal)
+// WWVB Expects to have a DST bit set - It allows for warning of DST but we're ignoring that in this scenario - https://en.wikipedia.org/wiki/WWVB#Amplitude-modulated_time_code
+void setDST(bool IsDST, uint8_t *signal)
 {
     if (IsDST)
     {
@@ -378,6 +383,8 @@ void setDST(bool IsDST, uint8_t* signal)
     }
 }
 
+// This code is to react to the WiFi provisioning using the ESP app. It is only called once per device unless you explicitly clear out the WiFi credentials on the ESP
+// It is from this repo - https://github.com/deploythefleet/arduino_ble_provisioning
 void SysProvEvent(arduino_event_t *sys_event)
 {
     switch (sys_event->event_id)
@@ -427,16 +434,17 @@ void SysProvEvent(arduino_event_t *sys_event)
 // I just needed something quick to fill this DST calc
 
 // Function to determine if a year is a leap year
-bool isLeapYear(int year) 
+bool isLeapYear(int year)
 {
-    if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)) {
+    if (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0))
+    {
         return true;
     }
     return false;
 }
 
 // Function to calculate the start and end days for DST in a given year
-void calculateDSTDays(int year, int *startDay, int *endDay) 
+void calculateDSTDays(int year, int *startDay, int *endDay)
 {
     bool leap = isLeapYear(year);
     // Calculate the second Sunday in March
@@ -450,10 +458,9 @@ void calculateDSTDays(int year, int *startDay, int *endDay)
 }
 
 // Function to check if the current day is within DST period
-bool isDaylightSavingTime(int year, int daysPassed) 
+bool isDaylightSavingTime(int year, int daysPassed)
 {
     int startDay, endDay;
     calculateDSTDays(year, &startDay, &endDay);
     return (daysPassed >= startDay && daysPassed < endDay);
 }
-
