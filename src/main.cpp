@@ -192,18 +192,19 @@ void loop()
     // Enable the seconds timer to start sending the WWVB signal
     if (!timer_Enabled)
     {
-        Serial.println("First check");
-        printESPTime();
         Serial.println("Kicking off NTP");
         configTime(0,0, ntpServer);
+        
+        // This only works due to the specific implementation of getLocalTime() - https://github.com/espressif/arduino-esp32/blob/7485c653bb949fd182d1eaa46f53f7947b348149/cores/esp32/esp32-hal-time.c#L114
+        // someone added a check on the year value for some reason (must be greater than 2016) and as the RTC is initialize to epoch (1900) the call will fail until NTP syncs.
+        // A better way to do this would be to use the IDF call to wait for the sync message but this works for me and was way simpler.
         Serial.println("Waiting for NTP Sync");
         while(!getLocalTime(utcTime))
         {
             Serial.println("Waiting");
             delay(100);
         }
-        Serial.println("Second check");
-        printESPTime();
+     
         timerAlarmEnable(TimerSecond);
         timer_Enabled = true;
     }
